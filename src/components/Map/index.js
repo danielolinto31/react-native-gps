@@ -1,7 +1,14 @@
 import React, { Component, Fragment } from "react";
-import { View, Image } from "react-native";
+import {
+  PermissionsAndroid,
+  Platform,
+  ToastAndroid,
+  View,
+  Image
+} from 'react-native';
 import MapView, { Marker } from "react-native-maps";
 import Geocoder from "react-native-geocoding";
+import Geolocation from 'react-native-geolocation-service';
 
 import { getPixelSize } from "../../utils";
 
@@ -31,30 +38,59 @@ export default class Map extends Component {
     location: null
   };
 
-  async componentDidMount() {
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords: { latitude, longitude } }) => {
-        const response = await Geocoder.from({ latitude, longitude });
-        const address = response.results[0].formatted_address;
-        const location = address.substring(0, address.indexOf(","));
+  hasLocationPermission = async () => {
+    if (Platform.OS === 'ios' ||
+      (Platform.OS === 'android' && Platform.Version < 23)) {
+      return true;
+    }
 
-        this.setState({
-          location,
-          region: {
-            latitude,
-            longitude,
-            latitudeDelta: 0.0143,
-            longitudeDelta: 0.0134
-          }
-        });
-      }, //sucesso
-      () => {}, //erro
-      {
-        timeout: 2000,
-        enableHighAccuracy: true,
-        maximumAge: 1000
-      }
+    const hasPermission = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
     );
+
+    if (hasPermission) return true;
+
+    const status = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+    );
+
+    if (status === PermissionsAndroid.RESULTS.GRANTED) return true;
+
+    if (status === PermissionsAndroid.RESULTS.DENIED) {
+      ToastAndroid.show('Location permission denied by user.', ToastAndroid.LONG);
+    } else if (status === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      ToastAndroid.show('Location permission revoked by user.', ToastAndroid.LONG);
+    }
+
+    return false;
+  }
+
+  async componentDidMount() {
+    const hasLocationPermission = await this.hasLocationPermission();
+    if (hasLocationPermission) {
+      navigator.geolocation.getCurrentPosition(
+        async ({ coords: { latitude, longitude } }) => {
+          const response = await Geocoder.from({ latitude, longitude });
+          const address = response.results[0].formatted_address;
+          const location = address.substring(0, address.indexOf(","));
+          ToastAndroid.show('Minhas coordenadas ' + latitude + ' e ' + longitude, ToastAndroid.LONG);
+          this.setState({
+            location,
+            region: {
+              latitude,
+              longitude,
+              latitudeDelta: 0.0143,
+              longitudeDelta: 0.0134
+            }
+          });
+        },
+        (error) => {
+          // See error code charts below.
+          console.log(error.code, error.message);
+        },
+        { enableHighAccuracy: true, timeout: 25000, maximumAge: 300000 }
+      );
+    }
   }
 
   handleLocationSelected = (data, { geometry }) => {
@@ -136,8 +172,8 @@ export default class Map extends Component {
             <Details />
           </Fragment>
         ) : (
-          <Search onLocationSelected={this.handleLocationSelected} />
-        )}
+            <Search onLocationSelected={this.handleLocationSelected} />
+          )}
       </View>
     );
   }
